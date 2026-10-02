@@ -1,6 +1,6 @@
 package tests;
 
-use consumer::http as app;
+use ecosystem::http::examples::basic as app;
 
 #[test]
 fn independent_http_protocol_consumer() -> () {
