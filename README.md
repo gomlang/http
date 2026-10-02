@@ -9,6 +9,18 @@ retained names and preserves duplicate value order. An invalid header or
 `Connection` token is a recoverable error. Reverse proxies should apply it on
 both sides of the exchange and set trusted forwarding headers only afterward.
 
+`content_length(headers, limit)` validates header syntax and returns the optional
+unsigned declared length within a caller-supplied byte limit. Repeated fields
+and comma lists are accepted only when every decimal value agrees; leading
+zeroes are allowed. Empty members, signs, non-ASCII whitespace, overflow,
+conflicting lengths and simultaneous Transfer-Encoding are errors. This follows
+[RFC 9110 section 8.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.6)
+and the strict framing policy in
+[RFC 9112 section 6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3).
+It does not decide whether a status/method permits a body, validate transfer
+codings, or enforce that the body actually contains the declared bytes.
+Connection token lists accept only ASCII space and tab as surrounding whitespace.
+
 `dump_request` and `dump_response` construct bounded HTTP/1.1-style byte views
 from explicit start-line parts, headers and a copied binary body. They reject
 start-line/header injection and return a limit error rather than truncate. They

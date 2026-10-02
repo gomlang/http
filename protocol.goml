@@ -85,7 +85,7 @@ pub fn strip_hop_headers(headers: Vec[(string, string)]) -> Result[Vec[(string, 
         }
         if name.eq_ignore_ascii_case("connection") {
             for item in value.split(",") {
-                let item = item.trim();
+                let item = trim_ows(item);
                 if !token(item) {
                     return Result::Err(Error::invalid("invalid Connection token"))
                 }
@@ -168,4 +168,63 @@ pub fn dump_response(
         }
     }
     dump("HTTP/1.1 " + status.to_string() + " " + reason, headers, body, limit)
+}
+
+fn trim_ows(value: string) -> string {
+    let mut start = 0;
+    let mut end = value.byte_len();
+    while start < end && (value.byte_get(start) == b' ' || value.byte_get(start) == b'\t') {
+        start += 1;
+    }
+    while end > start && (value.byte_get(end - 1) == b' ' || value.byte_get(end - 1) == b'\t') {
+        end -= 1;
+    }
+    value.byte_slice(start, end)
+}
+
+pub fn content_length(headers: Vec[(string, string)], limit: u64) -> Result[Option[u64], Error] {
+    let mut result: Option[u64] = Option::None;
+    let mut transfer = false;
+    for (name, value) in headers {
+        if !token(name) || !valid_value(value) {
+            return Result::Err(Error::invalid("invalid HTTP header"))
+        }
+        if name.eq_ignore_ascii_case("transfer-encoding") {
+            transfer = true;
+        }
+        if name.eq_ignore_ascii_case("content-length") {
+            for item in value.split(",") {
+                let item = trim_ows(item);
+                if item == "" {
+                    return Result::Err(Error::invalid("empty Content-Length value"))
+                }
+                let mut length: u64 = 0;
+                for byte in item.to_bytes() {
+                    if byte < b'0' || byte > b'9' {
+                        return Result::Err(Error::invalid("invalid Content-Length value"))
+                    }
+                    let digit = (byte - b'0').to_u64();
+                    if digit > limit || length > (limit - digit) / 10 {
+                        return Result::Err(
+                            Error {
+                                kind: ErrorKind::Limit,
+                                message: "Content-Length exceeds limit",
+                            },
+                        )
+                    }
+                    length = length * 10 + digit;
+                }
+                if let Some(previous) = result {
+                    if previous != length {
+                        return Result::Err(Error::invalid("conflicting Content-Length values"))
+                    }
+                }
+                result = Option::Some(length);
+            }
+        }
+    }
+    if transfer && result.is_some() {
+        return Result::Err(Error::invalid("ambiguous HTTP message framing"))
+    }
+    Result::Ok(result)
 }
