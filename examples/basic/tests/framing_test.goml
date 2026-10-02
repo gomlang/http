@@ -1,0 +1,22 @@
+package tests;
+
+use ecosystem::http::{response_framing, BodyFraming};
+use std::testing;
+
+#[test]
+fn downstream_distinguishes_tunnel_from_body() -> () {
+    testing::assert_eq(
+        testing::expect_ok(
+            response_framing("CONNECT", 200, Vec::from_array([("Content-Length", "999")]), 0),
+            "tunnel",
+        ),
+        BodyFraming::Tunnel,
+    );
+    testing::assert_eq(
+        testing::expect_ok(
+            response_framing("GET", 200, Vec::from_array([("Content-Length", "0")]), 0),
+            "empty fixed",
+        ),
+        BodyFraming::Fixed(0),
+    );
+}

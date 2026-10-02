@@ -1,0 +1,82 @@
+package tests;
+
+use ecosystem::http::{response_framing, BodyFraming};
+use std::testing;
+
+#[test]
+fn no_body_and_tunnel_precedence_ignore_framing_values() -> () {
+    let headers = Vec::from_array(
+        [("Content-Length", "nonsense"), ("Transfer-Encoding", "bad parameter")],
+    );
+    for (method, status, expected) in[
+        ("HEAD", 200, BodyFraming::Empty),
+        ("GET", 101, BodyFraming::Empty),
+        ("GET", 204, BodyFraming::Empty),
+        ("GET", 304, BodyFraming::Empty),
+        ("CONNECT", 200, BodyFraming::Tunnel),
+        ("CONNECT", 201, BodyFraming::Tunnel),
+        ("CONNECT", 299, BodyFraming::Tunnel),
+        ("CONNECT", 204, BodyFraming::Empty),
+    ] {
+        testing::assert_eq(
+            testing::expect_ok(response_framing(method, status, headers, 0), "precedence"),
+            expected,
+        );
+    }
+    testing::assert(
+        response_framing("HEAD", 200, Vec::from_array([("Bad Name", "value")]), 0).is_err(),
+    );
+    for (method, status) in[("", 200), ("GET", 99), ("GET", 600)] {
+        testing::assert(response_framing(method, status, Vec::new(), 0).is_err());
+    }
+}
+
+#[test]
+fn normal_response_framing_preserves_lengths_transfer_order_and_case() -> () {
+    let length = Vec::from_array([("Content-Length", "12,012")]);
+    for method in["GET", "head", "CONNECT"] {
+        testing::assert_eq(
+            testing::expect_ok(response_framing(method, 400, length, 12), "fixed"),
+            BodyFraming::Fixed(12),
+        );
+    }
+    testing::assert(response_framing("GET", 200, length, 11).is_err());
+    testing::assert_eq(
+        testing::expect_ok(response_framing("GET", 200, Vec::new(), 0), "EOF"),
+        BodyFraming::UntilClose,
+    );
+    for (value, expected) in[
+        ("gzip", BodyFraming::UntilClose),
+        ("gzip, CHUNKED", BodyFraming::Chunked),
+        (", chunked,,", BodyFraming::Chunked),
+    ] {
+        testing::assert_eq(
+            testing::expect_ok(
+                response_framing("GET", 200, Vec::from_array([("Transfer-Encoding", value)]), 0),
+                "coding",
+            ),
+            expected,
+        );
+    }
+    for value in["", ",", "chunked,gzip", "chunked,chunked", "gzip;level=1", "bad coding"] {
+        testing::assert(
+            response_framing("GET", 200, Vec::from_array([("Transfer-Encoding", value)]), 100).is_err(),
+        );
+    }
+    testing::assert(
+        response_framing(
+            "GET",
+            200,
+            Vec::from_array([("Transfer-Encoding", "chunked"), ("Content-Length", "0")]),
+            100,
+        ).is_err(),
+    );
+    testing::assert(
+        response_framing(
+            "GET",
+            200,
+            Vec::from_array([("Transfer-Encoding", "chunked"), ("Transfer-Encoding", "gzip")]),
+            100,
+        ).is_err(),
+    );
+}
