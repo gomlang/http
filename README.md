@@ -21,6 +21,19 @@ It does not decide whether a status/method permits a body, validate transfer
 codings, or enforce that the body actually contains the declared bytes.
 Connection token lists accept only ASCII space and tab as surrounding whitespace.
 
+`response_framing(method, status, headers, limit)` determines HTTP/1.1 response
+framing as `BodyFraming::{Empty, Tunnel, Fixed(u64), Chunked, UntilClose}`.
+It follows the ordered rules of [RFC 9112 section 6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3):
+HEAD and 1xx/204/304 take precedence, followed by successful CONNECT. Those cases
+ignore length/coding semantics and limits after header syntax validation; notably
+CONNECT 204 follows the no-body rule. Methods are case-sensitive. Other responses
+reject simultaneous TE/CL and inconsistent or excessive lengths. Transfer coding
+names are case-insensitive tokens; chunked must occur once and last. A non-chunked
+final coding or absent framing means EOF termination. Empty list members are
+ignored; an entirely empty TE list and coding parameters are unsupported errors.
+The helper does not decode transfer codings, cap bytes actually read, handle 101
+protocol switching, or make connection-reuse decisions.
+
 `dump_request` and `dump_response` construct bounded HTTP/1.1-style byte views
 from explicit start-line parts, headers and a copied binary body. They reject
 start-line/header injection and return a limit error rather than truncate. They

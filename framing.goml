@@ -1,0 +1,70 @@
+package http;
+
+#[derive(Debug, PartialEq)]
+pub enum BodyFraming {
+    Empty,
+    Tunnel,
+    Fixed(u64),
+    Chunked,
+    UntilClose,
+}
+
+pub fn response_framing(method: string, status: isize, headers: Vec[(string, string)], limit: u64) -> Result[
+    BodyFraming,
+    Error,
+] {
+    if !token(method) || status < 100 || status > 599 {
+        return Result::Err(Error::invalid("invalid response context"))
+    }
+    for (name, value) in headers {
+        if !token(name) || !valid_value(value) {
+            return Result::Err(Error::invalid("invalid HTTP header"))
+        }
+    }
+    if method == "HEAD" || status < 200 || status == 204 || status == 304 {
+        return Result::Ok(BodyFraming::Empty)
+    }
+    if method == "CONNECT" && status < 300 {
+        return Result::Ok(BodyFraming::Tunnel)
+    }
+    let length = content_length(headers, limit)?;
+    let mut transfer = false;
+    let mut count = 0;
+    let mut chunked = false;
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("transfer-encoding") {
+            transfer = true;
+            for item in value.split(",") {
+                let item = trim_ows(item);
+                if item == "" {
+                    continue
+                }
+                if !token(item) || chunked {
+                    return Result::Err(
+                        Error::invalid("invalid or unsupported transfer coding list"),
+                    )
+                }
+                count += 1;
+                chunked = item.eq_ignore_ascii_case("chunked");
+            }
+        }
+    }
+    if transfer {
+        if count == 0 {
+            return Result::Err(Error::invalid("empty transfer coding list"))
+        }
+        return Result::Ok(
+            if chunked {
+                BodyFraming::Chunked
+            } else {
+                BodyFraming::UntilClose
+            },
+        )
+    }
+    Result::Ok(
+        match length {
+            Some(length) => BodyFraming::Fixed(length),
+            None => BodyFraming::UntilClose,
+        },
+    )
+}
