@@ -1,0 +1,62 @@
+package tests;
+
+use ecosystem::http::{content_length, strip_hop_headers, ErrorKind};
+use std::testing;
+
+#[test]
+fn content_lengths_normalize_identical_decimal_fields_and_lists() -> () {
+    testing::assert(testing::expect_ok(content_length(Vec::new(), 0), "absent").is_none());
+    let fields = Vec::from_array([("Content-Length", " 0042,\t42 "), ("content-length", "42")]);
+    testing::assert(
+        testing::expect_ok(content_length(fields, 42), "same lengths") == Option::Some(42),
+    );
+    testing::assert(
+        testing::expect_ok(content_length(Vec::from_array([("Content-Length", "000")]), 0), "zero")
+            == Option::Some(0),
+    );
+    testing::assert(
+        testing::expect_ok(
+            content_length(
+                Vec::from_array([("Content-Length", "18446744073709551615")]),
+                18446744073709551615,
+            ),
+            "u64 maximum",
+        )
+            == Option::Some(18446744073709551615),
+    );
+}
+
+#[test]
+fn content_lengths_reject_ambiguous_invalid_and_excessive_framing() -> () {
+    for value in["", "1,", ",1", "1,,1", "1,2", "+1", "-1", "1 0", "1;", " 1", "1 "] {
+        testing::assert_eq(
+            testing::expect_err(
+                content_length(Vec::from_array([("Content-Length", value)]), 100),
+                "invalid length",
+            ).kind,
+            ErrorKind::Invalid,
+        );
+    }
+    for value in["101", "18446744073709551616"] {
+        testing::assert_eq(
+            testing::expect_err(
+                content_length(Vec::from_array([("Content-Length", value)]), 100),
+                "limit",
+            ).kind,
+            ErrorKind::Limit,
+        );
+    }
+    testing::assert_eq(
+        testing::expect_err(
+            content_length(
+                Vec::from_array([("Content-Length", "0"), ("Transfer-Encoding", "")]),
+                100,
+            ),
+            "ambiguous",
+        ).kind,
+        ErrorKind::Invalid,
+    );
+    testing::assert(
+        strip_hop_headers(Vec::from_array([("Connection", " x-private"), ("X-Private", "secret")])).is_err(),
+    );
+}

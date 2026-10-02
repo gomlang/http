@@ -1,0 +1,13 @@
+package tests;
+
+use ecosystem::http;
+use std::testing;
+
+#[test]
+fn downstream_checks_declared_body_budget() -> () {
+    let headers = Vec::from_array([("content-length", "12, 012")]);
+    testing::assert(
+        testing::expect_ok(http::content_length(headers, 12), "length") == Option::Some(12),
+    );
+    testing::assert(http::content_length(headers, 11).is_err());
+}
