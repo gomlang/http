@@ -28,6 +28,26 @@ pub fn response_framing(method: string, status: isize, headers: Vec[(string, str
         return Result::Ok(BodyFraming::Tunnel)
     }
     let length = content_length(headers, limit)?;
+    let coding = transfer_coding(headers)?;
+    if let Some(chunked) = coding {
+        return Result::Ok(
+            if chunked {
+                BodyFraming::Chunked
+            } else {
+                BodyFraming::UntilClose
+            },
+        )
+    }
+    Result::Ok(
+        match length {
+            Some(length) => BodyFraming::Fixed(length),
+            None => BodyFraming::UntilClose,
+        },
+    )
+}
+
+fn transfer_coding(headers: Vec[(string, string)]) -> Result[Option[bool], Error] {
+    // Header syntax and the TE/CL conflict are checked by content_length first.
     let mut transfer = false;
     let mut count = 0;
     let mut chunked = false;
@@ -49,22 +69,31 @@ pub fn response_framing(method: string, status: isize, headers: Vec[(string, str
             }
         }
     }
-    if transfer {
-        if count == 0 {
-            return Result::Err(Error::invalid("empty transfer coding list"))
+    if transfer && count == 0 {
+        return Result::Err(Error::invalid("empty transfer coding list"))
+    }
+    Result::Ok(
+        if transfer {
+            Option::Some(chunked)
+        } else {
+            Option::None
+        },
+    )
+}
+
+pub fn request_framing(headers: Vec[(string, string)], limit: u64) -> Result[BodyFraming, Error] {
+    let length = content_length(headers, limit)?;
+    let coding = transfer_coding(headers)?;
+    if let Some(chunked) = coding {
+        if !chunked {
+            return Result::Err(Error::invalid("request transfer coding must end with chunked"))
         }
-        return Result::Ok(
-            if chunked {
-                BodyFraming::Chunked
-            } else {
-                BodyFraming::UntilClose
-            },
-        )
+        return Result::Ok(BodyFraming::Chunked)
     }
     Result::Ok(
         match length {
             Some(length) => BodyFraming::Fixed(length),
-            None => BodyFraming::UntilClose,
+            None => BodyFraming::Empty,
         },
     )
 }

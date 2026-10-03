@@ -1,0 +1,71 @@
+package tests;
+
+use ecosystem::http::{request_framing, response_framing, BodyFraming, ErrorKind};
+use std::testing;
+
+#[test]
+fn requests_use_explicit_lengths_and_never_eof_framing() -> () {
+    testing::assert_eq(
+        testing::expect_ok(request_framing(Vec::new(), 0), "absent framing"),
+        BodyFraming::Empty,
+    );
+    for (value, length) in[("0", 0), (" 12,012\t", 12)] {
+        testing::assert_eq(
+            testing::expect_ok(
+                request_framing(Vec::from_array([("Content-Length", value)]), 12),
+                "fixed request",
+            ),
+            BodyFraming::Fixed(length),
+        );
+    }
+    testing::assert_eq(
+        testing::expect_err(
+            request_framing(Vec::from_array([("Content-Length", "13")]), 12),
+            "limit",
+        ).kind,
+        ErrorKind::Limit,
+    );
+    let close = Vec::from_array([("Connection", "close")]);
+    testing::assert_eq(
+        testing::expect_ok(request_framing(close, 0), "close is not request framing"),
+        BodyFraming::Empty,
+    );
+    testing::assert_eq(
+        testing::expect_ok(response_framing("POST", 200, close, 0), "response EOF"),
+        BodyFraming::UntilClose,
+    );
+}
+
+#[test]
+fn request_transfer_codings_preserve_order_across_fields() -> () {
+    for headers in[
+        Vec::from_array([("Transfer-Encoding", "chunked")]),
+        Vec::from_array([("Transfer-Encoding", "gzip, CHUNKED")]),
+        Vec::from_array([("transfer-encoding", ",gzip,,"), ("Transfer-Encoding", "\tchunked, ")]),
+    ] {
+        testing::assert_eq(
+            testing::expect_ok(request_framing(headers, 0), "chunked request"),
+            BodyFraming::Chunked,
+        );
+    }
+    for headers in[
+        Vec::from_array([("Transfer-Encoding", "gzip")]),
+        Vec::from_array([("Transfer-Encoding", "gzip, deflate")]),
+        Vec::from_array([("Transfer-Encoding", "chunked"), ("Transfer-Encoding", "gzip")]),
+        Vec::from_array([("Transfer-Encoding", "chunked"), ("Transfer-Encoding", "CHUNKED")]),
+        Vec::from_array([("Transfer-Encoding", "")]),
+        Vec::from_array([("Transfer-Encoding", ",\t,")]),
+        Vec::from_array([("Transfer-Encoding", "gzip;level=1,chunked")]),
+        Vec::from_array([("Transfer-Encoding", "chunked"), ("Content-Length", "0")]),
+        Vec::from_array([("Content-Length", "1,2")]),
+        Vec::from_array([("Content-Length", "1"), ("content-length", "2")]),
+        Vec::from_array([("Content-Length", "+1")]),
+        Vec::from_array([("Bad Name", "value")]),
+        Vec::from_array([("X-Test", "value\r\nInjected: yes")]),
+    ] {
+        testing::assert_eq(
+            testing::expect_err(request_framing(headers, 100), "invalid request framing").kind,
+            ErrorKind::Invalid,
+        );
+    }
+}

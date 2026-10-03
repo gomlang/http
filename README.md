@@ -34,6 +34,17 @@ ignored; an entirely empty TE list and coding parameters are unsupported errors.
 The helper does not decode transfer codings, cap bytes actually read, handle 101
 protocol switching, or make connection-reuse decisions.
 
+`request_framing(headers, limit)` returns `Empty` when neither length nor transfer
+coding is present, `Fixed(n)` for an agreed Content-Length (including zero), or
+`Chunked` when the final transfer coding is chunked. Request framing is independent
+of the method. Requests never use EOF termination: a transfer coding list ending
+in another coding is rejected. Header syntax, TE/CL ambiguity, length limits and
+transfer coding syntax use the same strict policy as `response_framing`, including
+rejection of coding parameters. These rules follow
+[RFC 9112 section 6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3).
+The helper classifies framing only; callers decode supported codings, enforce
+stream limits and handle connection closure after invalid framing.
+
 `dump_request` and `dump_response` construct bounded HTTP/1.1-style byte views
 from explicit start-line parts, headers and a copied binary body. They reject
 start-line/header injection and return a limit error rather than truncate. They

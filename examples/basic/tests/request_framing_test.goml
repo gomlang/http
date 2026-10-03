@@ -1,0 +1,30 @@
+package tests;
+
+use ecosystem::http::{request_framing, BodyFraming};
+use std::testing;
+
+#[test]
+fn downstream_classifies_requests_before_reading_a_body() -> () {
+    testing::assert_eq(
+        testing::expect_ok(
+            request_framing(Vec::from_array([("Host", "example.test")]), 1024),
+            "empty request",
+        ),
+        BodyFraming::Empty,
+    );
+    testing::assert_eq(
+        testing::expect_ok(
+            request_framing(Vec::from_array([("Content-Length", "7")]), 1024),
+            "fixed request",
+        ),
+        BodyFraming::Fixed(7),
+    );
+    testing::assert_eq(
+        testing::expect_ok(
+            request_framing(Vec::from_array([("Transfer-Encoding", "chunked")]), 1024),
+            "stream request",
+        ),
+        BodyFraming::Chunked,
+    );
+    testing::assert_err(request_framing(Vec::from_array([("Transfer-Encoding", "gzip")]), 1024));
+}
