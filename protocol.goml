@@ -113,28 +113,30 @@ fn dump(start: string, headers: Vec[(string, string)], body: Bytes, limit: isize
     if limit < 0 {
         return Result::Err(Error::limit())
     }
-    let mut head = start + "\r\n";
-    if head.byte_len() > limit {
+    let head = Bytes::from_string(start + "\r\n");
+    if head.len() > limit {
         return Result::Err(Error::limit())
     }
     for (name, value) in headers {
         if !token(name) || !valid_value(value) {
             return Result::Err(Error::invalid("invalid HTTP header"))
         }
-        if name.byte_len() > limit - head.byte_len()
-            || value.byte_len() > limit - head.byte_len() - name.byte_len()
-            || 4 > limit - head.byte_len() - name.byte_len() - value.byte_len() {
+        if name.byte_len() > limit - head.len()
+            || value.byte_len() > limit - head.len() - name.byte_len()
+            || 4 > limit - head.len() - name.byte_len() - value.byte_len() {
             return Result::Err(Error::limit())
         }
-        head += name + ": " + value + "\r\n";
+        head.extend_from_slice(name.to_bytes().as_slice());
+        head.extend_from_slice(b": ".as_slice());
+        head.extend_from_slice(value.to_bytes().as_slice());
+        head.extend_from_slice(b"\r\n".as_slice());
     }
-    if 2 > limit - head.byte_len() || body.len() > limit - head.byte_len() - 2 {
+    if 2 > limit - head.len() || body.len() > limit - head.len() - 2 {
         return Result::Err(Error::limit())
     }
-    head += "\r\n";
-    let result = Bytes::from_string(head);
-    result.extend_from_slice(body.as_slice());
-    Result::Ok(result)
+    head.extend_from_slice(b"\r\n".as_slice());
+    head.extend_from_slice(body.as_slice());
+    Result::Ok(head)
 }
 
 pub fn dump_request(

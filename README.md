@@ -51,7 +51,9 @@ stream limits and handle connection closure after invalid framing.
 `dump_request` and `dump_response` construct bounded HTTP/1.1-style byte views
 from explicit start-line parts, headers and a copied binary body. They reject
 start-line/header injection and return a limit error rather than truncate. They
-are diagnostics, not exact round trips: parsed requests may have lost original
+append headers to a single byte buffer, without repeatedly copying the preceding
+headers as the field count grows. Validation and limit checks follow wire order.
+They are diagnostics, not exact round trips: parsed requests may have lost original
 header case/order, and HTTP/2 is represented as HTTP/1.1 text. Callers provide
 their own headers and framing fields; these functions do not add or reconcile
 `Content-Length`, chunked encoding, trailers or connection state.

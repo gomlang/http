@@ -1,0 +1,126 @@
+package tests;
+
+use ecosystem::http::{dump_request, dump_response, Error, ErrorKind};
+use std::bytes::{Bytes};
+use std::testing;
+
+fn dump_case(response: bool, headers: Vec[(string, string)], body: Bytes, limit: isize) -> Result[
+    Bytes,
+    Error,
+] {
+    if response {
+        dump_response(200, "Fine é", headers, body, limit)
+    } else {
+        dump_request("POST", "/path?q=é", headers, body, limit)
+    }
+}
+
+fn start_line(response: bool) -> string {
+    if response {
+        "HTTP/1.1 200 Fine é\r\n"
+    } else {
+        "POST /path?q=é HTTP/1.1\r\n"
+    }
+}
+
+#[test]
+fn dump_many_headers_preserves_bytes_exact_budget_and_body_independence() -> () {
+    for response in[false, true] {
+        let headers = Vec::new();
+        for _ in 0..128 {
+            headers.push(("X-A", "alpha\t café"));
+            headers.push(("x-A", ""));
+        }
+        let body = Bytes::from_vec(Vec::from_array([0, 255, 13, 10, 128]));
+        let expected = Bytes::from_string(
+            start_line(response) + "X-A: alpha\t café\r\nx-A: \r\n".repeat(128) + "\r\n",
+        );
+        expected.extend_from_slice(body.as_slice());
+        let actual = testing::expect_ok(
+            dump_case(response, headers, body, expected.len()),
+            "exact dump budget",
+        );
+        testing::assert(actual.to_vec() == expected.to_vec());
+        testing::assert_eq(
+            testing::expect_err(
+                dump_case(response, headers, body, expected.len() - 1),
+                "one byte short",
+            ).kind,
+            ErrorKind::Limit,
+        );
+        body.set(0, 42);
+        testing::assert_eq(actual.get(actual.len() - 5), 0);
+        actual.set(actual.len() - 4, 17);
+        testing::assert_eq(body.get(1), 255);
+        testing::assert_eq(headers.len(), 256);
+        testing::assert(headers[0] == ("X-A", "alpha\t café"));
+        testing::assert(headers[255] == ("x-A", ""));
+    }
+}
+
+#[test]
+fn dump_errors_keep_start_line_header_and_budget_precedence() -> () {
+    for response in[false, true] {
+        let start = start_line(response).byte_len();
+        let invalid = Vec::from_array([("bad name", "value")]);
+        let control = Vec::from_array([("X", "bad\r\nvalue")]);
+        let early_limit = Vec::from_array([("X", "v"), ("bad name", "value")]);
+        for limit in[-1, 0, start - 1] {
+            testing::assert_eq(
+                testing::expect_err(
+                    dump_case(response, invalid, Bytes::new(), limit),
+                    "start limit precedes headers",
+                ).kind,
+                ErrorKind::Limit,
+            );
+        }
+        for headers in[invalid, control] {
+            let problem = testing::expect_err(
+                dump_case(response, headers, Bytes::from_string("body"), start),
+                "header validation precedes header and body limits",
+            );
+            testing::assert_eq(problem.kind, ErrorKind::Invalid);
+            testing::assert_eq(problem.message, "invalid HTTP header");
+        }
+        testing::assert_eq(
+            testing::expect_err(
+                dump_case(response, early_limit, Bytes::new(), start + 5),
+                "earlier header limit precedes later invalid field",
+            ).kind,
+            ErrorKind::Limit,
+        );
+        testing::assert_eq(
+            testing::expect_err(
+                dump_case(response, early_limit, Bytes::new(), start + 6),
+                "later header invalid after exact first header",
+            ).kind,
+            ErrorKind::Invalid,
+        );
+        testing::assert_eq(
+            testing::expect_err(
+                dump_case(response, Vec::new(), Bytes::new(), start + 1),
+                "terminating CRLF budget",
+            ).kind,
+            ErrorKind::Limit,
+        );
+        let empty = testing::expect_ok(
+            dump_case(response, Vec::new(), Bytes::new(), start + 2),
+            "empty exact budget",
+        );
+        testing::assert(empty.to_vec() == (start_line(response) + "\r\n").to_bytes());
+    }
+    testing::assert_eq(
+        testing::expect_err(
+            dump_request("bad method", "/", Vec::new(), Bytes::new(), -1),
+            "request line before limit",
+        ).kind,
+        ErrorKind::Invalid,
+    );
+    testing::assert_eq(
+        testing::expect_err(
+            dump_response(99, "OK", Vec::new(), Bytes::new(), -1),
+            "response line before limit",
+        ).kind,
+        ErrorKind::Invalid,
+    );
+}
