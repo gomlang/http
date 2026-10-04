@@ -1,0 +1,57 @@
+package tests;
+
+use ecosystem::http::{chunk_size, ErrorKind};
+use std::testing;
+
+#[test]
+fn chunk_sizes_validate_extensions_and_exact_numeric_limits() -> () {
+    for (line, limit) in[
+        ("0", 0),
+        ("000;last", 0),
+        ("aB", 171),
+        ("AB ; name = value\t; quoted=\"a;=b\\\"\";flag", 171),
+        ("1;empty=\"\";nonascii=\"é\"", 1),
+        ("ffffffffffffffff", 18446744073709551615),
+    ] {
+        testing::assert_eq(testing::expect_ok(chunk_size(line, limit), "chunk size"), limit);
+    }
+    for (line, limit) in[("1", 0), ("100", 255), ("10000000000000000", 18446744073709551615)] {
+        testing::assert_eq(
+            testing::expect_err(chunk_size(line, limit), "size limit").kind,
+            ErrorKind::Limit,
+        );
+    }
+}
+
+#[test]
+fn chunk_sizes_reject_malformed_ignored_extensions() -> () {
+    for line in[
+        "",
+        " 1",
+        "+1",
+        "-1",
+        "0x1",
+        "g",
+        "1 ",
+        "1;",
+        "1;name=",
+        "1;name=\"unfinished",
+        "1;name=\"escaped\\",
+        "1;name=bad value",
+        "1;name=é",
+        "1;name=\u0000",
+        "1;name=\u007f",
+        "1;name=\"bad\rvalue\"",
+        "1;name=\"bad\nvalue\"",
+        "1;name=\"bad\u0000value\"",
+        "1;name=\"escaped\\\u007f\"",
+        "1;name=\"ok\"tail",
+        "1;name\t",
+        "1\r\n",
+    ] {
+        testing::assert_eq(
+            testing::expect_err(chunk_size(line, 1024), "chunk syntax").kind,
+            ErrorKind::Invalid,
+        );
+    }
+}

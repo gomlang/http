@@ -1,0 +1,99 @@
+package http;
+
+fn chunk_hex(byte: byte) -> Option[u64] {
+    if byte >= b'0' && byte <= b'9' {
+        Option::Some((byte - b'0').to_u64())
+    } else if byte >= b'a' && byte <= b'f' {
+        Option::Some((byte - b'a' + 10).to_u64())
+    } else if byte >= b'A' && byte <= b'F' {
+        Option::Some((byte - b'A' + 10).to_u64())
+    } else {
+        Option::None
+    }
+}
+
+fn chunk_skip_ows(line: string, cursor: Ref[isize]) -> () {
+    while cursor.get() < line.byte_len()
+        && (line.byte_get(cursor.get()) == b' ' || line.byte_get(cursor.get()) == b'\t') {
+        cursor.set(cursor.get() + 1);
+    }
+}
+
+fn chunk_token(line: string, cursor: Ref[isize]) -> bool {
+    let start = cursor.get();
+    while cursor.get() < line.byte_len() {
+        if line.byte_get(cursor.get()) >= 128
+            || !token(line.byte_slice(cursor.get(), cursor.get() + 1)) {
+            break
+        }
+        cursor.set(cursor.get() + 1);
+    }
+    cursor.get() > start
+}
+
+pub fn chunk_size(line: string, limit: u64) -> Result[u64, Error] {
+    let cursor = Ref::new(0);
+    let mut count: u64 = 0;
+    while cursor.get() < line.byte_len() {
+        let Some(digit) = chunk_hex(line.byte_get(cursor.get())) else {
+            break
+        };
+        if digit > limit || count > (limit - digit) / 16 {
+            return Result::Err(
+                Error { kind: ErrorKind::Limit, message: "HTTP chunk size exceeds limit" },
+            )
+        }
+        count = count * 16 + digit;
+        cursor.set(cursor.get() + 1);
+    }
+    if cursor.get() == 0 {
+        return Result::Err(Error::invalid("invalid HTTP chunk size"))
+    }
+    while cursor.get() < line.byte_len() {
+        chunk_skip_ows(line, cursor);
+        if cursor.get() == line.byte_len() || line.byte_get(cursor.get()) != b';' {
+            return Result::Err(Error::invalid("invalid HTTP chunk extension separator"))
+        }
+        cursor.set(cursor.get() + 1);
+        chunk_skip_ows(line, cursor);
+        if !chunk_token(line, cursor) {
+            return Result::Err(Error::invalid("invalid HTTP chunk extension name"))
+        }
+        let after_name = cursor.get();
+        chunk_skip_ows(line, cursor);
+        if cursor.get() == line.byte_len() || line.byte_get(cursor.get()) != b'=' {
+            cursor.set(after_name);
+            continue
+        }
+        cursor.set(cursor.get() + 1);
+        chunk_skip_ows(line, cursor);
+        if cursor.get() < line.byte_len() && line.byte_get(cursor.get()) == b'"' {
+            cursor.set(cursor.get() + 1);
+            let mut closed = false;
+            while cursor.get() < line.byte_len() {
+                let mut byte = line.byte_get(cursor.get());
+                cursor.set(cursor.get() + 1);
+                if byte == b'"' {
+                    closed = true;
+                    break
+                }
+                if byte == b'\\' {
+                    if cursor.get() == line.byte_len() {
+                        break
+                    }
+                    byte = line.byte_get(cursor.get());
+                    cursor.set(cursor.get() + 1);
+                }
+                if (byte < 32 && byte != b'\t') || byte == 127 {
+                    return Result::Err(Error::invalid("invalid HTTP chunk quoted extension"))
+                }
+            }
+            if !closed {
+                return Result::Err(Error::invalid("unterminated HTTP chunk extension"))
+            }
+        } else if !chunk_token(line, cursor) {
+            return Result::Err(Error::invalid("invalid HTTP chunk extension value"))
+        }
+    }
+    Result::Ok(count)
+}

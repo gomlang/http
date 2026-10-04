@@ -1,0 +1,14 @@
+package tests;
+
+use ecosystem::http;
+use std::testing;
+
+#[test]
+fn consumer_parses_bounded_chunk_lines_with_extensions() -> () {
+    testing::assert_eq(
+        testing::expect_ok(http::chunk_size("a ; name = \"value\"", 10), "chunk line"),
+        10,
+    );
+    testing::assert(http::chunk_size("0;name=\"unfinished", 0).is_err());
+    testing::assert(http::chunk_size("b", 10).is_err());
+}

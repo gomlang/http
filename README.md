@@ -53,6 +53,13 @@ header case/order, and HTTP/2 is represented as HTTP/1.1 text. Callers provide
 their own headers and framing fields; these functions do not add or reconcile
 `Content-Length`, chunked encoding, trailers or connection state.
 
+`chunk_size(line, limit)` parses a chunk-size line without CRLF and returns its
+hexadecimal size within a caller-supplied `u64` limit. It validates every chunk
+extension, including token names, token or quoted values, quoted-pair escapes
+and the space/tab positions allowed by [RFC 9112 section 7.1.1](https://www.rfc-editor.org/rfc/rfc9112.html#section-7.1.1).
+Extension values are ignored after validation. Callers separately bound the
+line length, read the payload and CRLF, and parse trailers after a zero chunk.
+
 ```gom
 use ecosystem::http::{Error, dump_request, strip_hop_headers};
 use std::bytes::{Bytes};
