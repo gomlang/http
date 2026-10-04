@@ -8,6 +8,9 @@ hop-by-hop fields and every field nominated by a `Connection` header, lowercases
 retained names and preserves duplicate value order. An invalid header or
 `Connection` token is a recoverable error. Reverse proxies should apply it on
 both sides of the exchange and set trusted forwarding headers only afterward.
+Connection nominations use a private sorted index, so each retained field does
+not scan the entire token list. Validation still follows input order, including
+fields that will be removed.
 
 `content_length(headers, limit)` validates header syntax and returns the optional
 unsigned declared length within a caller-supplied byte limit. Repeated fields

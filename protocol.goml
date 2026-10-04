@@ -1,6 +1,7 @@
 package http;
 
 use std::bytes::{Bytes};
+use std::cmp::{Ord};
 
 #[derive(Debug, PartialEq)]
 pub enum ErrorKind {
@@ -96,10 +97,14 @@ pub fn strip_hop_headers(headers: Vec[(string, string)]) -> Result[Vec[(string, 
             }
         }
     }
+    if nominated.len() > 1 {
+        nominated.sort_by_ordering(|left, right| left.cmp(right));
+        nominated.dedup();
+    }
     let result: Vec[(string, string)] = Vec::new();
     for (name, value) in headers {
         let lower = name.to_ascii_lowercase();
-        if !hop_name(lower) && !nominated.contains(lower) {
+        if !hop_name(lower) && nominated.binary_search_by_ordering(|name| name.cmp(lower)).is_none() {
             result.push((lower, value));
         }
     }

@@ -34,3 +34,71 @@ fn connection_lists_still_reject_invalid_nonempty_members() -> () {
         testing::assert_err(strip_hop_headers(Vec::from_array([("Connection", value)])));
     }
 }
+
+#[test]
+fn connection_name_index_preserves_hop_removal_duplicates_and_input_order() -> () {
+    let headers = Vec::new();
+    for name in[
+        "Connection",
+        "pRoXy-CoNnEcTiOn",
+        "Keep-Alive",
+        "Proxy-Authenticate",
+        "Proxy-Authorization",
+        "TE",
+        "Trailer",
+        "Transfer-Encoding",
+        "Upgrade",
+    ] {
+        headers.push((name, "close"));
+    }
+    let names = Vec::new();
+    for index in 0..128 {
+        let name = "X-Private-" + index.to_string();
+        headers.push((name, "first"));
+        headers.push((name.to_ascii_lowercase(), "second"));
+        names.push(name);
+        names.push(name.to_ascii_lowercase());
+    }
+    headers.push(("X-End", "one"));
+    headers.push(("cOnNeCtIoN", names.join(", ")));
+    headers.push(("X-End", "two"));
+    headers.push(("Connection", " , X-PRIVATE-127, , x-private-0, "));
+    headers.push(("x-end", "three"));
+    let count = headers.len();
+    let result = testing::expect_ok(strip_hop_headers(headers), "indexed Connection names");
+    testing::assert(
+        result == Vec::from_array([("x-end", "one"), ("x-end", "two"), ("x-end", "three")]),
+    );
+    testing::assert_eq(headers.len(), count);
+    testing::assert(headers[9] == ("X-Private-0", "first"));
+    testing::assert(headers[10] == ("x-private-0", "second"));
+}
+
+#[test]
+fn connection_name_index_keeps_validation_of_removed_fields_and_first_error() -> () {
+    let cases = Vec::from_array(
+        [
+            (
+                Vec::from_array([("Connection", "bad token"), ("bad name", "v")]),
+                "invalid Connection token",
+            ),
+            (
+                Vec::from_array([("bad name", "v"), ("Connection", "bad token")]),
+                "invalid HTTP header",
+            ),
+            (
+                Vec::from_array([("Connection", "X-Private"), ("X-Private", "bad\r\nvalue")]),
+                "invalid HTTP header",
+            ),
+            (
+                Vec::from_array([("Connection", "x-private, X-PRIVATE, bad token")]),
+                "invalid Connection token",
+            ),
+            (Vec::from_array([("Keep-Alive", "bad\u0000value")]), "invalid HTTP header"),
+        ],
+    );
+    for (headers, message) in cases {
+        let problem = testing::expect_err(strip_hop_headers(headers), "validate before removing");
+        testing::assert_eq(problem.message, message);
+    }
+}
