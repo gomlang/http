@@ -1,0 +1,36 @@
+package tests;
+
+use ecosystem::http::{strip_hop_headers};
+use std::testing;
+
+#[test]
+fn connection_lists_ignore_empty_members_and_remove_every_nominated_field() -> () {
+    for value in["x-private", ", x-private", "x-private,", " ,\tX-Private, , keep-alive,,"] {
+        let headers = Vec::from_array(
+            [
+                ("Connection", value),
+                ("Connection", " , x-second,,"),
+                ("X-Private", "secret"),
+                ("x-private", "second secret"),
+                ("X-Second", "hidden"),
+                ("X-End", "one"),
+                ("x-end", "two"),
+            ],
+        );
+        let result = testing::expect_ok(strip_hop_headers(headers), "Connection list");
+        testing::assert(result == Vec::from_array([("x-end", "one"), ("x-end", "two")]));
+        testing::assert_eq(headers.len(), 7);
+    }
+    for value in["", " ", "\t", ",", " , \t, "] {
+        let headers = Vec::from_array([("Connection", value), ("X-End", "kept")]);
+        let result = testing::expect_ok(strip_hop_headers(headers), "empty Connection list");
+        testing::assert(result == Vec::from_array([("x-end", "kept")]));
+    }
+}
+
+#[test]
+fn connection_lists_still_reject_invalid_nonempty_members() -> () {
+    for value in[", bad name,", "keep-alive,\u000B,", ",x-private;param,", ",\"x-private\",", ",é,"] {
+        testing::assert_err(strip_hop_headers(Vec::from_array([("Connection", value)])));
+    }
+}

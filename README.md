@@ -20,6 +20,9 @@ and the strict framing policy in
 It does not decide whether a status/method permits a body, validate transfer
 codings, or enforce that the body actually contains the declared bytes.
 Connection token lists accept only ASCII space and tab as surrounding whitespace.
+Empty list members, including an entirely empty Connection field, are ignored
+as required by [RFC 9110 sections 5.6.1.2 and 7.6.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.1.2).
+Nonempty members must still be valid tokens; all nominated fields are removed.
 
 `response_framing(method, status, headers, limit)` determines HTTP/1.1 response
 framing as `BodyFraming::{Empty, Tunnel, Fixed(u64), Chunked, UntilClose}`.

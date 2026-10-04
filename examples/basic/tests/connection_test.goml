@@ -1,0 +1,13 @@
+package tests;
+
+use ecosystem::http;
+use std::testing;
+
+#[test]
+fn downstream_connection_lists_ignore_empty_members() -> () {
+    let headers = Vec::from_array(
+        [("Connection", " , X-Private,,"), ("X-Private", "secret"), ("X-End", "kept")],
+    );
+    let result = testing::expect_ok(http::strip_hop_headers(headers), "hop headers");
+    testing::assert(result == Vec::from_array([("x-end", "kept")]));
+}
